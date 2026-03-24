@@ -5,7 +5,6 @@ import "forge-std/Test.sol";
 import "forge-std/StdJson.sol";
 
 interface ITLDMinter {
-    function batchAddToAllowlist(string[] calldata tlds) external;
     function allowedTLDs(bytes32 labelHash) external view returns (bool);
     function version() external pure returns (string memory);
 }
@@ -19,14 +18,14 @@ interface IRoot {
  * @title TLDOracleV2CalldataCheck
  * @notice Verifies the TLD Oracle v2 governance proposal executes the expected outcome.
  *
- * Simulates the DAO timelock executing three calls atomically:
- *   1. CREATE2 factory → deploy TLDMinter at a deterministic address
+ * Simulates the DAO timelock executing two calls atomically:
+ *   1. CREATE2 factory → deploy TLDMinter at a deterministic address (1,166 gTLDs seeded via constructor)
  *   2. root.setController(address(tldMinter), true)
- *   3. tldMinter.batchAddToAllowlist(tlds) — 1,166 post-2012 ICANN gTLDs
  *
  * The TLDMinter address is pre-computed from the CREATE2 formula before deployment,
- * allowing Calls 2 and 3 to reference it in the same proposal. Delegates can verify
- * the expected address matches the bytecode hash before voting.
+ * allowing Call 2 to reference it in the same proposal. The full allowlist is baked
+ * into the constructor args and committed to the initCode hash — delegates verify
+ * one hash, vote once, and the system is fully operational.
  *
  * To verify locally:
  *   Clone: git clone https://github.com/estmcmxci/dao-proposals.git
@@ -49,7 +48,7 @@ contract TLDOracleV2CalldataCheck is Test {
     address constant SC_CONTRACT   = 0xB8fA0cE3f91F41C5292D07475b445c35ddF63eE0;
 
     // Deterministic deployment proxy (EIP-2470 / standard CREATE2 factory)
-    address constant CREATE2_FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
+    // Note: uses CREATE2_FACTORY inherited from forge-std Base.sol
 
     // Salt — chosen for this proposal; produces a deterministic TLDMinter address
     bytes32 constant SALT = bytes32(0);
@@ -84,10 +83,10 @@ contract TLDOracleV2CalldataCheck is Test {
             CREATE2_FACTORY
         );
 
-        // ── Simulate DAO timelock executing three calls ──────────────
+        // ── Simulate DAO timelock executing two calls ───────────────
         vm.startPrank(DAO_TIMELOCK);
 
-        // Call 1: Deploy TLDMinter via CREATE2 factory
+        // Call 1: Deploy TLDMinter via CREATE2 factory (allowlist seeded in constructor)
         (bool deploySuccess,) = CREATE2_FACTORY.call(
             abi.encodePacked(SALT, initCode)
         );
@@ -100,10 +99,6 @@ contract TLDOracleV2CalldataCheck is Test {
 
         // Call 2: Authorize TLDMinter as Root controller
         IRoot(ROOT).setController(expectedAddress, true);
-
-        // Call 3: Seed allowlist
-        string[] memory tlds = _loadAllowlist();
-        ITLDMinter(expectedAddress).batchAddToAllowlist(tlds);
 
         vm.stopPrank();
 
@@ -136,7 +131,10 @@ contract TLDOracleV2CalldataCheck is Test {
         // Version check
         assertEq(ITLDMinter(expectedAddress).version(), "2.0.0", "Unexpected contract version");
 
-        // Allowlist count
+        // Allowlist count (loaded from JSON to verify constructor received all 1,166)
+        string memory json = vm.readFile("src/ens/proposals/tld-oracle-v2/allowlist.json");
+        bytes memory raw = json.parseRaw(".tlds");
+        string[] memory tlds = abi.decode(raw, (string[]));
         assertEq(tlds.length, 1166, "Allowlist should contain exactly 1,166 TLDs");
     }
 
@@ -144,8 +142,12 @@ contract TLDOracleV2CalldataCheck is Test {
     // Helpers
     // ─────────────────────────────────────────────────────────────────
 
-    /// @dev Builds the full initCode (bytecode + ABI-encoded constructor args).
+    /// @dev Builds the full initCode (bytecode + ABI-encoded constructor args including allowlist).
     function _buildInitCode() internal view returns (bytes memory) {
+        string memory json = vm.readFile("src/ens/proposals/tld-oracle-v2/allowlist.json");
+        bytes memory raw = json.parseRaw(".tlds");
+        string[] memory tlds = abi.decode(raw, (string[]));
+
         return abi.encodePacked(
             vm.getCode("TLDMinter.sol:TLDMinter"),
             abi.encode(
@@ -158,15 +160,9 @@ contract TLDOracleV2CalldataCheck is Test {
                 TIMELOCK_DURATION,
                 RATE_LIMIT_MAX,
                 RATE_LIMIT_PERIOD,
-                PROOF_MAX_AGE
+                PROOF_MAX_AGE,
+                tlds
             )
         );
-    }
-
-    /// @dev Loads the 1,166-entry allowlist from allowlist.json via stdJson.
-    function _loadAllowlist() internal view returns (string[] memory) {
-        string memory json = vm.readFile("src/ens/proposals/tld-oracle-v2/allowlist.json");
-        bytes memory raw = json.parseRaw(".tlds");
-        return abi.decode(raw, (string[]));
     }
 }
