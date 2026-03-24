@@ -3,17 +3,18 @@
   "salt": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "initCodeHash": "0x5f7592a28878e322f096d935111004a96b1c9d61ee234bb70e3bd74ce8544e88",
   "gasEstimates": {
+    "source": "mainnet fork test trace (test-results.txt)",
     "proposalA": {
-      "deploy": 2041848,
-      "setController": 27834,
-      "batch1": 7473599,
-      "batch2": 7484096,
-      "batch3": 7494584,
-      "total": 24521961
+      "deploy": 2038986,
+      "setController": 24827,
+      "batch1": 7375439,
+      "batch2": 7375439,
+      "batch3": 7375439,
+      "total": 24190130
     },
     "proposalB": {
-      "batch4": 6653535,
-      "total": 6653535
+      "batch4": 6539532,
+      "total": 6539532
     }
   },
   "proposalA": {
