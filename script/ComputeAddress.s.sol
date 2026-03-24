@@ -2,10 +2,8 @@
 pragma solidity ^0.8.21;
 
 import "forge-std/Script.sol";
-import "forge-std/StdJson.sol";
 
 contract ComputeAddress is Script {
-    using stdJson for string;
     address constant FACTORY = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
     // Mainnet constructor args
@@ -22,13 +20,6 @@ contract ComputeAddress is Script {
     uint256 constant PROOF_MAX_AGE     = 14 days;
 
     function run() public view {
-        // Load allowlist
-        string memory json = vm.readFile("src/ens/proposals/tld-oracle-v2/allowlist.json");
-        bytes memory raw = json.parseRaw(".tlds");
-        string[] memory tlds = abi.decode(raw, (string[]));
-        console.log("Loaded TLDs:", tlds.length);
-        console.log("");
-
         bytes memory initCode = abi.encodePacked(
             vm.getCode("TLDMinter.sol:TLDMinter"),
             abi.encode(
@@ -41,8 +32,7 @@ contract ComputeAddress is Script {
                 TIMELOCK_DURATION,
                 RATE_LIMIT_MAX,
                 RATE_LIMIT_PERIOD,
-                PROOF_MAX_AGE,
-                tlds
+                PROOF_MAX_AGE
             )
         );
 

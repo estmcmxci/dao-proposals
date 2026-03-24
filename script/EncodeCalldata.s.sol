@@ -4,6 +4,10 @@ pragma solidity ^0.8.21;
 import "forge-std/Script.sol";
 import "forge-std/StdJson.sol";
 
+interface ITLDMinter {
+    function batchAddToAllowlist(string[] calldata tlds) external;
+}
+
 interface IRoot {
     function setController(address controller, bool enabled) external;
 }
@@ -22,25 +26,19 @@ contract EncodeCalldata is Script {
     bytes32 constant SALT = bytes32(0);
 
     function run() public view {
-        // Load allowlist into constructor args
-        string memory json = vm.readFile("src/ens/proposals/tld-oracle-v2/allowlist.json");
-        bytes memory raw = json.parseRaw(".tlds");
-        string[] memory tlds = abi.decode(raw, (string[]));
-
-        // Build initCode with allowlist baked into constructor
+        // Build initCode (no allowlist in constructor)
         bytes memory initCode = abi.encodePacked(
             vm.getCode("TLDMinter.sol:TLDMinter"),
             abi.encode(
                 DNSSEC_IMPL, ROOT, ENS_REGISTRY, DAO_TIMELOCK,
                 SC_MULTISIG, SC_CONTRACT,
-                uint256(7 days), uint256(10), uint256(7 days), uint256(14 days),
-                tlds
+                uint256(7 days), uint256(10), uint256(7 days), uint256(14 days)
             )
         );
 
         address minter = vm.computeCreate2Address(SALT, keccak256(initCode), FACTORY);
 
-        // Call 1: CREATE2 deploy (includes allowlist in constructor)
+        // Call 1: CREATE2 deploy
         bytes memory call1 = abi.encodePacked(SALT, initCode);
 
         // Call 2: setController
@@ -48,14 +46,21 @@ contract EncodeCalldata is Script {
             IRoot.setController.selector, minter, true
         );
 
-        console.log("=== ENCODED CALLDATA (2-call proposal) ===");
+        // Load batches and encode Calls 3-6
+        string[4] memory batchFiles = [
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-1.json",
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-2.json",
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-3.json",
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-4.json"
+        ];
+
+        console.log("=== ENCODED CALLDATA ===");
         console.log("");
         console.log("TLDMinter address:", minter);
         console.log("initCodeHash:", vm.toString(keccak256(initCode)));
-        console.log("TLDs in constructor:", tlds.length);
         console.log("");
 
-        console.log("--- Call 1: CREATE2 deploy + allowlist ---");
+        console.log("--- Call 1: CREATE2 deploy ---");
         console.log("target:", FACTORY);
         console.log("calldata length:", call1.length);
         console.log("calldata:");
@@ -67,5 +72,24 @@ contract EncodeCalldata is Script {
         console.log("calldata length:", call2.length);
         console.log("calldata:");
         console.logBytes(call2);
+        console.log("");
+
+        for (uint256 i = 0; i < 4; i++) {
+            string memory json = vm.readFile(batchFiles[i]);
+            bytes memory raw = json.parseRaw(".tlds");
+            string[] memory batch = abi.decode(raw, (string[]));
+
+            bytes memory callN = abi.encodeWithSelector(
+                ITLDMinter.batchAddToAllowlist.selector, batch
+            );
+
+            console.log("--- Call", i + 3, ": batchAddToAllowlist ---");
+            console.log("target:", minter);
+            console.log("batch size:", batch.length);
+            console.log("calldata length:", callN.length);
+            console.log("calldata:");
+            console.logBytes(callN);
+            console.log("");
+        }
     }
 }

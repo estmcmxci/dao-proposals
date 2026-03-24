@@ -4,6 +4,11 @@ pragma solidity ^0.8.21;
 import "forge-std/Script.sol";
 import "forge-std/StdJson.sol";
 
+interface ITLDMinter {
+    function batchAddToAllowlist(string[] calldata tlds) external;
+    function version() external pure returns (string memory);
+}
+
 interface IRoot {
     function setController(address controller, bool enabled) external;
 }
@@ -22,21 +27,13 @@ contract MeasureGas is Script {
     bytes32 constant SALT = bytes32(0);
 
     function run() public {
-        // Load allowlist into constructor args
-        string memory json = vm.readFile("src/ens/proposals/tld-oracle-v2/allowlist.json");
-        bytes memory raw = json.parseRaw(".tlds");
-        string[] memory tlds = abi.decode(raw, (string[]));
-        console.log("Loaded TLDs:", tlds.length);
-        console.log("");
-
-        // Build initCode with allowlist baked into constructor
+        // Build initCode (no allowlist in constructor)
         bytes memory initCode = abi.encodePacked(
             vm.getCode("TLDMinter.sol:TLDMinter"),
             abi.encode(
                 DNSSEC_IMPL, ROOT, ENS_REGISTRY, DAO_TIMELOCK,
                 SC_MULTISIG, SC_CONTRACT,
-                uint256(7 days), uint256(10), uint256(7 days), uint256(14 days),
-                tlds
+                uint256(7 days), uint256(10), uint256(7 days), uint256(14 days)
             )
         );
 
@@ -47,51 +44,71 @@ contract MeasureGas is Script {
         console.log("initCodeHash:", vm.toString(keccak256(initCode)));
         console.log("");
 
-        // Two-call proposal: deploy + setController
-        bytes memory call1Data = abi.encodePacked(SALT, initCode);
-        bytes memory call2Data = abi.encodeWithSelector(
-            IRoot.setController.selector, expectedAddress, true
-        );
-
-        console.log("=== CALLDATA SIZES ===");
-        console.log("Call 1 (CREATE2 deploy + allowlist):", call1Data.length, "bytes");
-        console.log("Call 2 (setController):", call2Data.length, "bytes");
-        console.log("Total calldata:", call1Data.length + call2Data.length, "bytes");
-        console.log("");
+        // Load batch files
+        string[4] memory batchFiles = [
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-1.json",
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-2.json",
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-3.json",
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-4.json"
+        ];
 
         // Gas measurements
         vm.startPrank(DAO_TIMELOCK);
 
+        // Call 1: CREATE2 deploy
+        bytes memory call1Data = abi.encodePacked(SALT, initCode);
         uint256 g0 = gasleft();
         (bool ok1,) = FACTORY.call(call1Data);
         uint256 deployGas = g0 - gasleft();
         require(ok1, "deploy failed");
 
+        // Call 2: setController
         uint256 g1 = gasleft();
         IRoot(ROOT).setController(expectedAddress, true);
         uint256 controllerGas = g1 - gasleft();
 
+        // Calls 3-6: batchAddToAllowlist (4 batches)
+        uint256 proposalABatchGas = 0;
+        uint256 proposalBBatchGas = 0;
+        for (uint256 i = 0; i < 4; i++) {
+            string memory json = vm.readFile(batchFiles[i]);
+            bytes memory raw = json.parseRaw(".tlds");
+            string[] memory batch = abi.decode(raw, (string[]));
+
+            uint256 gN = gasleft();
+            ITLDMinter(expectedAddress).batchAddToAllowlist(batch);
+            uint256 batchGas = gN - gasleft();
+
+            if (i < 3) {
+                proposalABatchGas += batchGas;
+            } else {
+                proposalBBatchGas = batchGas;
+            }
+
+            console.log("Batch %d: %d TLDs, %d gas", i + 1, batch.length, batchGas);
+        }
+
         vm.stopPrank();
 
-        uint256 totalGas = deployGas + controllerGas;
+        uint256 proposalAGas = deployGas + controllerGas + proposalABatchGas;
+        uint256 proposalBGas = proposalBBatchGas;
 
+        console.log("");
         console.log("=== GAS BREAKDOWN ===");
-        console.log("Call 1 (CREATE2 deploy + allowlist):", deployGas);
+        console.log("Call 1 (CREATE2 deploy):", deployGas);
         console.log("Call 2 (setController):", controllerGas);
-        console.log("Total gas:", totalGas);
+        console.log("Calls 3-5 (batches 1-3):", proposalABatchGas);
+        console.log("Call 6 (batch 4):", proposalBBatchGas);
+        console.log("");
+        console.log("Proposal A total (5 calls):", proposalAGas);
+        console.log("Proposal B total (1 call):", proposalBGas);
         console.log("");
 
-        // Check against 30M block gas limit (with 2M buffer)
-        if (totalGas > 28_000_000) {
-            console.log("WARNING: Total exceeds 28M (30M limit - 2M buffer)");
-            uint256 gasPerTld = deployGas / tlds.length;
-            uint256 maxTlds = (28_000_000 - controllerGas) / gasPerTld;
-            console.log("  Estimated gas per TLD:", gasPerTld);
-            console.log("  Max TLDs in constructor:", maxTlds);
-            console.log("  Remaining for batchAddToAllowlist:", tlds.length - maxTlds);
+        if (proposalAGas > 28_000_000) {
+            console.log("WARNING: Proposal A exceeds 28M (30M limit - 2M buffer)");
         } else {
-            console.log("OK: Single proposal fits within 30M block gas limit");
-            console.log("  Headroom:", 30_000_000 - totalGas, "gas");
+            console.log("OK: Proposal A fits within 30M block gas limit");
+            console.log("  Headroom:", 30_000_000 - proposalAGas, "gas");
         }
     }
 }
