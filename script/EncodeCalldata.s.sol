@@ -54,7 +54,7 @@ contract EncodeCalldata is Script {
             "src/ens/proposals/tld-oracle-v2/allowlist-batch-4.json"
         ];
 
-        console.log("=== ENCODED CALLDATA ===");
+        console.log("=== ENCODED CALLDATA (single proposal, 6 calls) ===");
         console.log("");
         console.log("TLDMinter address:", minter);
         console.log("initCodeHash:", vm.toString(keccak256(initCode)));

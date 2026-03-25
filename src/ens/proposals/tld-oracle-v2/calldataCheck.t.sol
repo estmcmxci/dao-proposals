@@ -19,15 +19,13 @@ interface IRoot {
  * @title TLDOracleV2CalldataCheck
  * @notice Verifies the TLD Oracle v2 governance proposal executes the expected outcome.
  *
- * Simulates the DAO timelock executing Proposal A (5 calls):
+ * Simulates the DAO timelock executing the proposal (6 calls):
  *   1. CREATE2 factory → deploy TLDMinter at a deterministic address
  *   2. root.setController(address(tldMinter), true)
- *   3-5. tldMinter.batchAddToAllowlist(batch) — first 900 gTLDs in 3 batches of 300
- *
- * A follow-up Proposal B seeds the remaining 266 TLDs.
+ *   3-6. tldMinter.batchAddToAllowlist(batch) — all 1,166 gTLDs in 4 batches
  *
  * The TLDMinter address is pre-computed from the CREATE2 formula before deployment,
- * allowing Calls 2-5 to reference it in the same proposal. Delegates can verify
+ * allowing Calls 2-6 to reference it in the same proposal. Delegates can verify
  * the expected address matches the bytecode hash before voting.
  *
  * To verify locally:
@@ -86,7 +84,7 @@ contract TLDOracleV2CalldataCheck is Test {
             CREATE2_FACTORY
         );
 
-        // ── Simulate DAO timelock executing Proposal A (5 calls) ────
+        // ── Simulate DAO timelock executing proposal (6 calls) ──────
         vm.startPrank(DAO_TIMELOCK);
 
         // Call 1: Deploy TLDMinter via CREATE2 factory
@@ -103,21 +101,18 @@ contract TLDOracleV2CalldataCheck is Test {
         // Call 2: Authorize TLDMinter as Root controller
         IRoot(ROOT).setController(expectedAddress, true);
 
-        // Calls 3-5: Seed allowlist in 3 batches (first 900 TLDs)
-        string[3] memory batchFiles = [
+        // Calls 3-6: Seed allowlist in 4 batches (all 1,166 TLDs)
+        string[4] memory batchFiles = [
             "src/ens/proposals/tld-oracle-v2/allowlist-batch-1.json",
             "src/ens/proposals/tld-oracle-v2/allowlist-batch-2.json",
-            "src/ens/proposals/tld-oracle-v2/allowlist-batch-3.json"
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-3.json",
+            "src/ens/proposals/tld-oracle-v2/allowlist-batch-4.json"
         ];
 
-        for (uint256 i = 0; i < 3; i++) {
+        for (uint256 i = 0; i < 4; i++) {
             string[] memory batch = _loadBatch(batchFiles[i]);
             ITLDMinter(expectedAddress).batchAddToAllowlist(batch);
         }
-
-        // Simulate Proposal B: seed remaining TLDs (batch 4)
-        string[] memory batch4 = _loadBatch("src/ens/proposals/tld-oracle-v2/allowlist-batch-4.json");
-        ITLDMinter(expectedAddress).batchAddToAllowlist(batch4);
 
         vm.stopPrank();
 

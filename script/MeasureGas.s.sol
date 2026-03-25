@@ -68,8 +68,7 @@ contract MeasureGas is Script {
         uint256 controllerGas = g1 - gasleft();
 
         // Calls 3-6: batchAddToAllowlist (4 batches)
-        uint256 proposalABatchGas = 0;
-        uint256 proposalBBatchGas = 0;
+        uint256 totalBatchGas = 0;
         for (uint256 i = 0; i < 4; i++) {
             string memory json = vm.readFile(batchFiles[i]);
             bytes memory raw = json.parseRaw(".tlds");
@@ -78,37 +77,32 @@ contract MeasureGas is Script {
             uint256 gN = gasleft();
             ITLDMinter(expectedAddress).batchAddToAllowlist(batch);
             uint256 batchGas = gN - gasleft();
-
-            if (i < 3) {
-                proposalABatchGas += batchGas;
-            } else {
-                proposalBBatchGas = batchGas;
-            }
+            totalBatchGas += batchGas;
 
             console.log("Batch %d: %d TLDs, %d gas", i + 1, batch.length, batchGas);
         }
 
         vm.stopPrank();
 
-        uint256 proposalAGas = deployGas + controllerGas + proposalABatchGas;
-        uint256 proposalBGas = proposalBBatchGas;
+        uint256 totalGas = deployGas + controllerGas + totalBatchGas;
+        uint256 gasLimit = block.gaslimit;
+        uint256 buffer = 2_000_000;
 
         console.log("");
         console.log("=== GAS BREAKDOWN ===");
         console.log("Call 1 (CREATE2 deploy):", deployGas);
         console.log("Call 2 (setController):", controllerGas);
-        console.log("Calls 3-5 (batches 1-3):", proposalABatchGas);
-        console.log("Call 6 (batch 4):", proposalBBatchGas);
+        console.log("Calls 3-6 (batches 1-4):", totalBatchGas);
         console.log("");
-        console.log("Proposal A total (5 calls):", proposalAGas);
-        console.log("Proposal B total (1 call):", proposalBGas);
+        console.log("Proposal total (6 calls):", totalGas);
+        console.log("Block gas limit:", gasLimit);
         console.log("");
 
-        if (proposalAGas > 28_000_000) {
-            console.log("WARNING: Proposal A exceeds 28M (30M limit - 2M buffer)");
+        if (totalGas > gasLimit - buffer) {
+            console.log("WARNING: Proposal exceeds block gas limit minus 2M buffer");
         } else {
-            console.log("OK: Proposal A fits within 30M block gas limit");
-            console.log("  Headroom:", 30_000_000 - proposalAGas, "gas");
+            console.log("OK: Proposal fits within block gas limit");
+            console.log("  Headroom:", gasLimit - totalGas, "gas");
         }
     }
 }
