@@ -1,4 +1,5 @@
 # [Temp Check] DNS-Verified TLD Fast-Path (Steg) — programmable gTLD assignment with 7-day veto
+<!-- draft-version: 2 -->
 
 ## TL;DR
 
