@@ -1,6 +1,6 @@
 # dao-proposals
 
-Executable governance proposals for ENS DAO — calldata, contract snapshots, verification tests, and rationale documents. By estmcmxci.eth.
+Executable governance proposals for ENS DAO — calldata, contract snapshots, verification tests, and rationale documents. 
 
 ## Verify a proposal
 
